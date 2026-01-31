@@ -2,15 +2,19 @@
   "name": "story-point-poker",
   "version": "1.0.0",
   "description": "Real-time story point estimation tool with Jira integration",
+  "type": "module",
   "scripts": {
     "install:all": "cd server && yarn install && cd ../client && yarn install",
-    "build": "cd client && yarn install && yarn build",
-    "start": "cd server && node server.js",
+    "build": "cd client && yarn install && yarn build && cd ../server && yarn install",
+    "start": "node server/server.js",
     "dev:server": "cd server && yarn start",
     "dev:client": "cd client && yarn dev",
-    "deploy": "yarn build && yarn start"
+    "postinstall": "cd server && yarn install && cd ../client && yarn install"
   },
   "keywords": ["planning-poker", "jira", "agile", "websocket", "vue"],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
+  }
 }

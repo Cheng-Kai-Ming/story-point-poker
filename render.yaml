@@ -5,10 +5,8 @@ services:
     env: node
     region: singapore
     plan: free
-    buildCommand: cd client && yarn install && yarn build && cd ../server && yarn install
-    startCommand: cd server && node server.js
+    buildCommand: yarn build
+    startCommand: yarn start
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 10000

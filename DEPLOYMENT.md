@@ -48,18 +48,18 @@ git push origin main
    - **Runtime**: `Node`
    - **Build Command**: 
      ```
-     cd client && yarn install && yarn build && cd ../server && yarn install
+     yarn build
      ```
    - **Start Command**: 
      ```
-     cd server && node server.js
+     yarn start
      ```
    - **Plan**: Select **Free**
 
-5. **Environment Variables** (Optional)
-   - Click "Advanced" to add environment variables if needed
-   - `NODE_ENV` is automatically set to `production`
+5. **Environment Variables**
+   - `NODE_ENV` is automatically set to `production` by render.yaml
    - `PORT` is automatically provided by Render
+   - No additional configuration needed!
 
 6. **Create Web Service**
    - Click "Create Web Service"
