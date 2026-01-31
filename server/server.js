@@ -11,6 +11,82 @@ const __dirname = dirname(__filename)
 const PORT = process.env.PORT || 8080
 const NODE_ENV = process.env.NODE_ENV || 'development'
 
+// Security configuration
+const SECURITY_CONFIG = {
+  MAX_USERNAME_LENGTH: 50,
+  MAX_MESSAGE_SIZE: 10000, // 10KB
+  RATE_LIMIT_WINDOW: 60000, // 1 minute
+  RATE_LIMIT_MAX_MESSAGES: 100,
+  SESSION_TIMEOUT: 30 * 60 * 1000, // 30 minutes
+  HEARTBEAT_INTERVAL: 30000, // 30 seconds
+  VALID_VOTE_OPTIONS: ['0', '1', '2', '3', '5', '8', '13', '21', '?', '∞'],
+}
+
+// Security headers
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'X-XSS-Protection': '1; mode=block',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: ws:;",
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'geolocation=(), microphone=(), camera=()'
+}
+
+// Rate limiting per connection
+const rateLimitMap = new Map()
+
+function checkRateLimit(connectionId) {
+  const now = Date.now()
+  const record = rateLimitMap.get(connectionId) || { count: 0, resetTime: now + SECURITY_CONFIG.RATE_LIMIT_WINDOW }
+  
+  // Reset if window expired
+  if (now > record.resetTime) {
+    record.count = 0
+    record.resetTime = now + SECURITY_CONFIG.RATE_LIMIT_WINDOW
+  }
+  
+  record.count++
+  rateLimitMap.set(connectionId, record)
+  
+  return record.count <= SECURITY_CONFIG.RATE_LIMIT_MAX_MESSAGES
+}
+
+// Input validation functions
+function sanitizeUsername(username) {
+  if (!username || typeof username !== 'string') {
+    return null
+  }
+  
+  // Remove any HTML/script tags
+  const sanitized = username
+    .replace(/<[^>]*>/g, '')
+    .trim()
+  
+  if (sanitized.length === 0 || sanitized.length > SECURITY_CONFIG.MAX_USERNAME_LENGTH) {
+    return null
+  }
+  
+  return sanitized
+}
+
+function validateVote(vote) {
+  if (vote === undefined || vote === null) {
+    return false
+  }
+  
+  // Convert number to string for comparison
+  const voteStr = String(vote)
+  return SECURITY_CONFIG.VALID_VOTE_OPTIONS.includes(voteStr)
+}
+
+function sanitizeString(str, maxLength = 500) {
+  if (!str || typeof str !== 'string') {
+    return ''
+  }
+  return str.replace(/<[^>]*>/g, '').trim().substring(0, maxLength)
+}
+
 // Create HTTP server
 const server = http.createServer((req, res) => {
   // Serve static files from client/dist in production
@@ -40,16 +116,25 @@ const server = http.createServer((req, res) => {
     
     fs.readFile(filePath, (err, content) => {
       if (err) {
-        res.writeHead(404, { 'Content-Type': 'text/plain' })
+        res.writeHead(404, { 
+          'Content-Type': 'text/plain',
+          ...SECURITY_HEADERS
+        })
         res.end('404 Not Found')
       } else {
-        res.writeHead(200, { 'Content-Type': contentType })
+        res.writeHead(200, { 
+          'Content-Type': contentType,
+          ...SECURITY_HEADERS
+        })
         res.end(content)
       }
     })
   } else {
     // In development, just return a message
-    res.writeHead(200, { 'Content-Type': 'text/plain' })
+    res.writeHead(200, { 
+      'Content-Type': 'text/plain',
+      ...SECURITY_HEADERS
+    })
     res.end('WebSocket server is running. Use the Vue dev server for the client.')
   }
 })
@@ -267,16 +352,79 @@ wss.on('connection', (ws) => {
   
   let userId = null
   let hasJoined = false
+  let lastActivity = Date.now()
+  let heartbeatInterval = null
+  
+  // Generate connection ID for rate limiting
+  const connectionId = Date.now().toString() + Math.random().toString(36).substr(2, 9)
+  
+  // Setup heartbeat
+  ws.isAlive = true
+  ws.on('pong', () => {
+    ws.isAlive = true
+    lastActivity = Date.now()
+  })
+  
+  heartbeatInterval = setInterval(() => {
+    if (ws.isAlive === false) {
+      console.log('Connection timeout, closing')
+      return ws.terminate()
+    }
+    
+    // Check session timeout
+    if (Date.now() - lastActivity > SECURITY_CONFIG.SESSION_TIMEOUT) {
+      console.log('Session timeout')
+      ws.send(JSON.stringify({
+        type: 'session-timeout',
+        message: 'Session expired due to inactivity'
+      }))
+      return ws.terminate()
+    }
+    
+    ws.isAlive = false
+    ws.ping()
+  }, SECURITY_CONFIG.HEARTBEAT_INTERVAL)
 
   ws.on('message', async (message) => {
     try {
+      // Update activity timestamp
+      lastActivity = Date.now()
+      
+      // Rate limiting check
+      if (!checkRateLimit(connectionId)) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Rate limit exceeded. Please slow down.'
+        }))
+        return
+      }
+      
+      // Check message size
+      if (message.length > SECURITY_CONFIG.MAX_MESSAGE_SIZE) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Message too large'
+        }))
+        return
+      }
+      
       const data = JSON.parse(message)
-      console.log('Received:', data)
+      console.log('Received:', data.type, userId ? `from user ${userId}` : '')
       
       if (data.type === 'join') {
         // Prevent duplicate joins from the same connection
         if (hasJoined) {
           console.log('User already joined, ignoring duplicate join message')
+          return
+        }
+        
+        // Validate and sanitize username
+        const sanitizedUsername = sanitizeUsername(data.username)
+        if (!sanitizedUsername) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid username. Must be 1-50 characters with no HTML.'
+          }))
           return
         }
         
@@ -293,14 +441,15 @@ wss.on('connection', (ws) => {
         // Store user information
         const user = {
           id: userId,
-          username: data.username,
+          username: sanitizedUsername,
           isHost: userId === hostId,
-          ws: ws
+          ws: ws,
+          lastActivity: Date.now()
         }
         
         users.set(userId, user)
         
-        console.log(`User ${data.username} joined. Total users: ${users.size}`)
+        console.log(`User ${sanitizedUsername} joined. Total users: ${users.size}`)
         
         // Send current user info
         ws.send(JSON.stringify({
@@ -310,6 +459,12 @@ wss.on('connection', (ws) => {
             username: user.username,
             isHost: user.isHost
           }
+        }))
+        
+        // Send Jira config status (but not the credentials)
+        ws.send(JSON.stringify({
+          type: 'jira-config-status',
+          configured: jiraConfig !== null
         }))
         
         // Broadcast user list to all clients
@@ -327,7 +482,10 @@ wss.on('connection', (ws) => {
       } else if (data.type === 'cast-vote') {
         // Handle vote casting
         if (!userId || !users.has(userId)) {
-          console.log('Invalid user trying to vote')
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Authentication required'
+          }))
           return
         }
         
@@ -339,7 +497,16 @@ wss.on('connection', (ws) => {
           return
         }
         
-        const points = data.points
+        // Validate vote
+        if (!validateVote(data.points)) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid vote value'
+          }))
+          return
+        }
+        
+        const points = String(data.points)
         currentVotes.set(userId, points)
         
         console.log(`User ${users.get(userId).username} voted: ${points}`)
@@ -379,7 +546,17 @@ wss.on('connection', (ws) => {
           return
         }
         
-        finalResult = data.result
+        // Validate final result is a number
+        const result = data.result
+        if (result !== null && (isNaN(result) || result < 0 || result > 1000)) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid story point value. Must be 0-1000.'
+          }))
+          return
+        }
+        
+        finalResult = result
         console.log(`Host set final result to: ${finalResult}`)
         
         // Broadcast updated final result
@@ -446,13 +623,50 @@ wss.on('connection', (ws) => {
           return
         }
         
-        jiraConfig = data.config
-        console.log('Host set Jira configuration:', jiraConfig.domain)
+        // Validate Jira config
+        const config = data.config
+        if (!config || !config.domain || !config.email || !config.apiToken) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid Jira configuration. Domain, email, and API token are required.'
+          }))
+          return
+        }
+        
+        // Sanitize domain
+        const sanitizedDomain = sanitizeString(config.domain, 200)
+          .replace(/^https?:\/\//, '')
+          .replace(/\/$/, '')
+        
+        if (!sanitizedDomain || sanitizedDomain.length < 5) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid Jira domain'
+          }))
+          return
+        }
+        
+        // Store sanitized config (server-side only)
+        jiraConfig = {
+          domain: sanitizedDomain,
+          email: sanitizeString(config.email, 100),
+          apiToken: config.apiToken, // Keep as-is for authentication
+          projectKey: config.projectKey ? sanitizeString(config.projectKey, 50) : '',
+          storyPointsField: config.storyPointsField ? sanitizeString(config.storyPointsField, 50) : 'customfield_10016'
+        }
+        
+        console.log('Host set Jira configuration:', jiraConfig.domain, 'for project:', jiraConfig.projectKey || 'All')
         
         ws.send(JSON.stringify({
           type: 'jira-config-saved',
           success: true
         }))
+        
+        // Broadcast to all users that Jira is now configured
+        broadcast({
+          type: 'jira-config-status',
+          configured: true
+        })
       } else if (data.type === 'fetch-jira-tickets') {
         // Handle fetching Jira tickets (host only)
         if (userId !== hostId) {
@@ -508,6 +722,16 @@ wss.on('connection', (ws) => {
         }
         
         const ticketIndex = data.ticketIndex
+        
+        // Validate ticket index
+        if (typeof ticketIndex !== 'number' || ticketIndex < 0 || ticketIndex >= jiraTickets.length) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Invalid ticket index'
+          }))
+          return
+        }
+        
         if (ticketIndex >= 0 && ticketIndex < jiraTickets.length) {
           currentTicketIndex = ticketIndex
           
@@ -522,13 +746,30 @@ wss.on('connection', (ws) => {
           
           console.log(`Host selected ticket: ${jiraTickets[ticketIndex].id}`)
         }
+      } else {
+        // Unknown message type
+        console.warn('Unknown message type:', data.type)
       }
     } catch (e) {
       console.error('Failed to parse message:', e)
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Invalid message format'
+        }))
+      }
     }
   })
 
   ws.on('close', () => {
+    // Clear heartbeat interval
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval)
+    }
+    
+    // Clean up rate limiting
+    rateLimitMap.delete(connectionId)
+    
     if (userId && users.has(userId)) {
       const user = users.get(userId)
       console.log(`User ${user.username} disconnected`)
@@ -564,6 +805,12 @@ wss.on('connection', (ws) => {
             isHost: true
           }
         }))
+        
+        // Send Jira config status to new host
+        newHost.ws.send(JSON.stringify({
+          type: 'jira-config-status',
+          configured: jiraConfig !== null
+        }))
       } else if (users.size === 0) {
         hostId = null
         // Reset voting state when all users leave
@@ -571,6 +818,8 @@ wss.on('connection', (ws) => {
         currentVotes.clear()
         votingRevealed = false
         finalResult = null
+        // Clear Jira config for security when all users leave
+        jiraConfig = null
       }
       
       // Broadcast updated user list
@@ -580,6 +829,10 @@ wss.on('connection', (ws) => {
 
   ws.on('error', (error) => {
     console.error('WebSocket error:', error)
+    // Clear heartbeat interval on error
+    if (heartbeatInterval) {
+      clearInterval(heartbeatInterval)
+    }
   })
 })
 

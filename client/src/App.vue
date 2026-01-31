@@ -85,6 +85,7 @@
 <script setup>
 import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useWebSocket } from './composables/useWebSocket'
+import { secureStorage } from './utils/secureStorage'
 import Login from './components/Login.vue'
 import UserList from './components/UserList.vue'
 import VotingBoard from './components/VotingBoard.vue'
@@ -207,20 +208,25 @@ async function handleJoin(name) {
 }
 
 function loadJiraConfig() {
-  const savedConfig = localStorage.getItem('jiraConfig')
+  const savedConfig = secureStorage.getItem('jiraConfig')
   if (savedConfig) {
     try {
-      jiraConfig.value = JSON.parse(savedConfig)
-      console.log('Loaded Jira config from localStorage')
+      jiraConfig.value = savedConfig
+      console.log('Loaded encrypted Jira config from storage')
     } catch (e) {
-      console.error('Failed to parse saved Jira config:', e)
+      console.error('Failed to load Jira config:', e)
+      // Clear corrupted data
+      secureStorage.removeItem('jiraConfig')
     }
   }
 }
 
 function saveJiraConfigToLocalStorage() {
-  localStorage.setItem('jiraConfig', JSON.stringify(jiraConfig.value))
-  console.log('Saved Jira config to localStorage')
+  if (secureStorage.setItem('jiraConfig', jiraConfig.value)) {
+    console.log('Saved encrypted Jira config to storage')
+  } else {
+    console.error('Failed to save Jira config')
+  }
 }
 
 function handleSaveJiraConfig(config) {
