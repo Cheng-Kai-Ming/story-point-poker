@@ -164,57 +164,8 @@ let currentVotes = new Map() // userId -> points
 let votingRevealed = false
 let finalResult = null // Final story point value set by host
 
-// Store Jira tickets (shared by all users)
-let jiraTickets = [
-  {
-    id: 'JIRA-101',
-    title: 'Implement user authentication',
-    description: 'Add JWT-based authentication system with login and registration endpoints',
-    priority: 'High',
-    status: 'In Progress',
-    assignee: 'John Doe'
-  },
-  {
-    id: 'JIRA-102',
-    title: 'Fix database connection issues',
-    description: 'Resolve intermittent connection drops to PostgreSQL database',
-    priority: 'High',
-    status: 'To Do',
-    assignee: 'Jane Smith'
-  },
-  {
-    id: 'JIRA-103',
-    title: 'Update API documentation',
-    description: 'Document all REST endpoints with request/response examples',
-    priority: 'Medium',
-    status: 'In Progress',
-    assignee: 'Mike Johnson'
-  },
-  {
-    id: 'JIRA-104',
-    title: 'Optimize dashboard performance',
-    description: 'Reduce page load time by implementing lazy loading and caching',
-    priority: 'Medium',
-    status: 'To Do',
-    assignee: 'Sarah Wilson'
-  },
-  {
-    id: 'JIRA-105',
-    title: 'Add unit tests',
-    description: 'Write comprehensive unit tests for core business logic',
-    priority: 'Low',
-    status: 'Done',
-    assignee: 'Tom Brown'
-  },
-  {
-    id: 'JIRA-106',
-    title: 'Design mobile responsive layout',
-    description: 'Create mobile-friendly UI components for all dashboard pages',
-    priority: 'Medium',
-    status: 'In Progress',
-    assignee: 'Lisa Garcia'
-  }
-]
+// Store Jira tickets (shared by all users) - starts empty until fetched from Jira
+let jiraTickets = []
 
 // Function to fetch Jira tickets using REST API
 async function fetchJiraTickets(filters = {}) {

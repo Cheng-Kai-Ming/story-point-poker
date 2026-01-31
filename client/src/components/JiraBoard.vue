@@ -43,7 +43,8 @@
           <line x1="9" y1="9" x2="15" y2="9"></line>
           <line x1="9" y1="15" x2="15" y2="15"></line>
         </svg>
-        <p>No tickets available</p>
+        <h3>No Tickets Available</h3>
+        <p>Host needs to configure Jira and fetch tickets to get started.</p>
       </div>
     </div>
   </div>
