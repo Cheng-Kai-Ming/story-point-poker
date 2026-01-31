@@ -1,0 +1,14 @@
+{
+  "name": "vue-websocket-dashboard-server",
+  "version": "1.0.0",
+  "description": "WebSocket server for live dashboard",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.4",
+    "ws": "^8.16.0"
+  }
+}
