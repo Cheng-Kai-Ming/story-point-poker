@@ -92,7 +92,19 @@ import JiraConfig from './components/JiraConfig.vue'
 import JiraFilter from './components/JiraFilter.vue'
 import TicketSelector from './components/TicketSelector.vue'
 
-const WS_URL = 'ws://localhost:8080'
+// Determine WebSocket URL based on environment
+const getWebSocketUrl = () => {
+  if (import.meta.env.PROD) {
+    // In production, use same host with wss:// if HTTPS or ws:// if HTTP
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}`
+  } else {
+    // In development, use localhost
+    return 'ws://localhost:8080'
+  }
+}
+
+const WS_URL = getWebSocketUrl()
 
 const username = ref('')
 const isConnected = ref(false)

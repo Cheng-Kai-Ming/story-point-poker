@@ -138,9 +138,21 @@ story-point-poker/
 cd server && yarn install && cd ../client && yarn install && cd ..
 ```
 
-### Production Build
+### Production Deployment
 
-Build the Vue app for production:
+**Deploy to Render.com (Free)**
+
+This app is ready to deploy on Render with zero configuration!
+
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for complete step-by-step instructions.
+
+**Quick Deploy:**
+1. Push code to GitHub
+2. Connect repository on [Render.com](https://render.com)
+3. Deploy with one click
+4. Get your live URL in ~5 minutes
+
+**Build Locally:**
 ```bash
 cd client
 yarn build

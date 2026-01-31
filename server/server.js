@@ -1,12 +1,70 @@
 import { WebSocketServer } from 'ws'
 import axios from 'axios'
+import http from 'http'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
+import fs from 'fs'
 
-const PORT = 8080
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
-const wss = new WebSocketServer({ port: PORT })
+const PORT = process.env.PORT || 8080
+const NODE_ENV = process.env.NODE_ENV || 'development'
 
-console.log(`WebSocket server is running on ws://localhost:${PORT}`)
-console.log('Server started fresh - no users in memory')
+// Create HTTP server
+const server = http.createServer((req, res) => {
+  // Serve static files from client/dist in production
+  if (NODE_ENV === 'production') {
+    const clientPath = join(__dirname, '../client/dist')
+    let filePath = join(clientPath, req.url === '/' ? 'index.html' : req.url)
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      filePath = join(clientPath, 'index.html') // Fallback to index.html for SPA routing
+    }
+    
+    const ext = filePath.split('.').pop()
+    const contentTypes = {
+      'html': 'text/html',
+      'js': 'text/javascript',
+      'css': 'text/css',
+      'json': 'application/json',
+      'png': 'image/png',
+      'jpg': 'image/jpg',
+      'gif': 'image/gif',
+      'svg': 'image/svg+xml',
+      'ico': 'image/x-icon'
+    }
+    
+    const contentType = contentTypes[ext] || 'text/plain'
+    
+    fs.readFile(filePath, (err, content) => {
+      if (err) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' })
+        res.end('404 Not Found')
+      } else {
+        res.writeHead(200, { 'Content-Type': contentType })
+        res.end(content)
+      }
+    })
+  } else {
+    // In development, just return a message
+    res.writeHead(200, { 'Content-Type': 'text/plain' })
+    res.end('WebSocket server is running. Use the Vue dev server for the client.')
+  }
+})
+
+// Create WebSocket server attached to HTTP server
+const wss = new WebSocketServer({ server })
+
+server.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`)
+  console.log(`Environment: ${NODE_ENV}`)
+  if (NODE_ENV === 'production') {
+    console.log(`Access the app at: http://localhost:${PORT}`)
+  }
+  console.log('Server started fresh - no users in memory')
+})
 
 // Store connected users
 const users = new Map()
